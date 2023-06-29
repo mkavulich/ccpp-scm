@@ -7680,7 +7680,7 @@
   kind = kind_phys
   active = (control_for_deep_convection_scheme == identifier_for_grell_freitas_deep_convection .or. control_for_deep_convection_scheme == identifier_for_unified_deep_convection .or. control_for_deep_convection_scheme == identifier_for_new_tiedtke_deep_convection)
 [forceq]
-  standard_name = tendendy_of_specific_humidity_due_to_nonphysics
+  standard_name = tendency_of_specific_humidity_due_to_nonphysics
   long_name = moisture tendency due to dynamics only
   units = kg kg-1 s-1
   dimensions = (horizontal_loop_extent,vertical_layer_dimension)
