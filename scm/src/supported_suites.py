@@ -1,1 +1,1 @@
-suites = ["raven","bluebird","bald_eagle","albatross","pigeon","hummingbird"]
+suites = ["raven","magpie","robin","warbler","hummingbird"]
