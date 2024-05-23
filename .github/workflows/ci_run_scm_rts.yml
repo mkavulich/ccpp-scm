@@ -180,7 +180,7 @@ jobs:
     - name: Build SCM
       run: |
         cd ${SCM_ROOT}/scm/bin
-        make -j4
+        make VERBOSE=1 -j4
 
     - name: Download data for SCM
       run: | 
