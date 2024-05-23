@@ -69,8 +69,8 @@ jobs:
     - name: Environment for gfortran compiler
       if: contains(matrix.fortran-compiler, 'gnu')
       run: |
-        echo "FC=gfortran-11" >> $GITHUB_ENV
-        echo "CC=gcc-11"      >> $GITHUB_ENV
+        echo "FC=mpif90" >> $GITHUB_ENV
+        echo "CC=mpicc"  >> $GITHUB_ENV
 
     - name: Environment for ifort compiler
       if: contains(matrix.fortran-compiler, 'intel')
@@ -152,11 +152,6 @@ jobs:
     #######################################################################################
     # Build SCM. Run regression tests.
     #######################################################################################
-    - name: Download data for SCM
-      run: |
-        cd ${SCM_ROOT}
-        ./contrib/get_all_static_data.sh
-        ./contrib/get_thompson_tables.sh
 
     - name: Configure build with CMake (Release)
       if: contains(matrix.build-type, 'Release')
@@ -177,6 +172,12 @@ jobs:
         cd ${SCM_ROOT}/scm/bin
         make -j4
 
+    - name: Download data for SCM
+      run: | 
+        cd ${SCM_ROOT}
+        ./contrib/get_all_static_data.sh
+        ./contrib/get_thompson_tables.sh
+      
     - name: Run SCM RTs
       run: |
         cd ${SCM_ROOT}/scm/bin
