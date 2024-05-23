@@ -77,7 +77,7 @@ jobs:
     # Install FORTRAN dependencies
     #######################################################################################
     - name: Environment for gfortran compiler
-      if: contains(matrix.fortran-compiler, 'gnu')
+      if: contains(matrix.fortran-compiler, 'gfortran')
       run: |
         echo "FC=mpif90" >> $GITHUB_ENV
         echo "CC=mpicc"  >> $GITHUB_ENV
