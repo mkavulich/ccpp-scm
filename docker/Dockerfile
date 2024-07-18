@@ -1,4 +1,4 @@
-FROM debian:12
+FROM debian:12.5
 MAINTAINER Michael Kavulich <kavulich@ucar.edu>
 
 # Set up base OS environment
@@ -6,11 +6,11 @@ MAINTAINER Michael Kavulich <kavulich@ucar.edu>
 RUN apt-get -y update
 
 # Get "essential" tools and libraries
-RUN apt-get -y install build-essential
-RUN apt-get -y install cmake curl git file gfortran-12 ksh m4 python3 tcsh time wget vim
-RUN apt-get -y install libnetcdf-pnetcdf-19 libnetcdff7 libnetcdf-dev libnetcdff-dev libxml2
-RUN apt-get -y install python3-pip python3.11-venv
-RUN apt-get -y install openmpi-bin openmpi-common openmpi-doc libopenmpi-dev
+RUN apt-get -y install build-essential \
+ && apt-get -y install cmake curl git file gfortran-12 ksh m4 python3 tcsh time wget vim \
+ && apt-get -y install libnetcdf-pnetcdf-19 libnetcdff7 libnetcdf-dev libnetcdff-dev libxml2 \
+ && apt-get -y install python3-pip python3.11-venv \
+ && apt-get -y install openmpi-bin openmpi-common openmpi-doc libopenmpi-dev
 MAINTAINER Grant Firl <grantf@ucar.edu> or Michael Kavulich <kavulich@ucar.edu>
 
 #Compiler environment variables
@@ -34,7 +34,7 @@ RUN groupadd comusers -g 9999 \
 
 # Link version-specific aliases (python3 will be created later with virtual environment)
 RUN ln -s ~comuser/.venv/bin/python3 /usr/local/bin/python
-RUN ln -s /usr/bin/gfortran-12 /usr/bin/gfortran
+RUN ln -s /usr/bin/python3 /usr/bin/python
 
 # all root steps completed above, now continue below as regular userID comuser
 USER comuser
