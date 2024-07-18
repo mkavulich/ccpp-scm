@@ -9,8 +9,8 @@ RUN apt-get -y update
 RUN apt-get -y install build-essential \
   && apt-get -y install cmake curl git file gfortran-12 ksh m4 python3 tcsh time wget vim \
   && apt-get -y install libnetcdf-pnetcdf-19 libnetcdff7 libnetcdf-dev libnetcdff-dev libxml2 \
-  && apt-get -y install python3-pip python3.11-venv
-
+  && apt-get -y install python3-pip python3.11-venv \
+  && apt-get install openmpi-bin openmpi-common openmpi-doc libopenmpi-dev
 MAINTAINER Grant Firl <grantf@ucar.edu> or Michael Kavulich <kavulich@ucar.edu>
 
 #Compiler environment variables
