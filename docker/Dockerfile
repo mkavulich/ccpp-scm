@@ -101,4 +101,6 @@ RUN echo "set mouse=" > ~/.vimrc
 ENV VIRTUAL_ENV=~/.venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+# Need numpy version below 2.0 for now
+RUN pip install "numpy<2"
 RUN pip3 install f90nml==1.4.4 netcdf4==1.6.5
