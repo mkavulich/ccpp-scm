@@ -71,7 +71,7 @@ ENV w3emc_ROOT /comsoftware/nceplibs
 
 # Obtain CCPP SCM source code and static data, build code
 RUN cd /comsoftware \
-  && git clone --recursive -b main https://github.com/NCAR/ccpp-scm \
+  && git clone --recursive -b feature/v7_online_tutorial_updates https://github.com/mkavulich/ccpp-scm  \
   && cd /comsoftware/ccpp-scm/ \
   && ./contrib/get_all_static_data.sh \
   && ./contrib/get_thompson_tables.sh \
@@ -102,5 +102,5 @@ ENV VIRTUAL_ENV=~/.venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 # Need numpy version below 2.0 for now
-RUN pip install "numpy<2"
+RUN pip3 install "numpy<2"
 RUN pip3 install f90nml==1.4.4 netcdf4==1.6.5

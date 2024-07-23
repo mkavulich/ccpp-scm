@@ -2,9 +2,9 @@ name: Build and push Docker container to DockerHub
 
 on:
   push:
-    branches:
-      # Only build containers for DockerHub when pushing to main
-      - "main"
+#    branches:
+#      # Only build containers for DockerHub when pushing to main
+#      - "main"
 
 env:
   LATEST_TAG: dtcenter/ccpp-scm:latest
