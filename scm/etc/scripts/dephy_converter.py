@@ -19,10 +19,6 @@ CASE_NML_DIR = '../case_config'
 # Path to the directory containing processed case input files
 PROCESSED_CASE_DIR = '../../data/processed_case_input'
 
-# For developers: set logging level to DEBUG for additional output
-LOGLEVEL = logging.DEBUG
-#LOGLEVEL = logging.INFO
-
 DEFAULT_MISSING_VALUE = -9999.0
 DEFAULT_NUDGING_TIMESCALE = 7200.0 #s
 
@@ -33,6 +29,7 @@ DEFAULT_NUDGING_TIMESCALE = 7200.0 #s
 parser = argparse.ArgumentParser()
 parser.add_argument('-n',   '--case_name',       help='name of case',         required=True)
 parser.add_argument('-a',   '--use_area',        help='use column_area namelist attribute as forcing_scale',  action='store_true')
+parser.add_argument('-d',   '--debug',           help='enable debugging output', action='store_true')
 
 
 ########################################################################################
@@ -41,18 +38,19 @@ parser.add_argument('-a',   '--use_area',        help='use column_area namelist 
 def parse_arguments():
     """Parse command line arguments"""
     args           = parser.parse_args()
-    case_name      = args.case_name
-    use_area       = args.use_area
-
         
-    return (case_name, use_area)
+    return (args.case_name, args.use_area, args.debug)
 
 ########################################################################################
 #
 ########################################################################################
-def setup_logging():
+def setup_logging(debug):
     """Sets up the logging module."""
-    logging.basicConfig(format='%(levelname)s: %(message)s', level=LOGLEVEL)
+    if debug:
+        logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
+    else:
+        logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG)
+
 
 def get_case_nml(case_name):
     """Returns case configuration Fortran namelist"""
@@ -98,7 +96,7 @@ def get_case_data(case_name):
         try:
             case_data_dict['soil_depth'] = nc_fid.variables['soil_depth'][:]
         except KeyError:
-            case_data_dict['soil_depth'] = [missing_value]
+            case_data_dict['soil_depth'] = case_data_dict['missing_value']
         
         #read variables from scalar group; lat and lon can not be missing
         scalars_grp = nc_fid.groups['scalars']
@@ -232,7 +230,7 @@ def get_case_data(case_name):
             try:
                 case_data_dict[var] = scalars_grp.variables[var][:]
             except KeyError:
-                case_data_dict[var] = missing_value
+                case_data_dict[var] = case_data_dict['missing_value']
 
         # snowd is a special case
 
@@ -242,7 +240,7 @@ def get_case_data(case_name):
             try:
                 case_data_dict['snowd'] = scalars_grp.variables['snwdph'][:]
             except KeyError:
-                case_data_dict['snowd'] = missing_value
+                case_data_dict['snowd'] = case_data_dict['missing_value']
 
 
         #read variables from initial group
@@ -278,7 +276,7 @@ def get_case_data(case_name):
             try:
                 case_data_dict[var] = initial_grp.variables[var][:]
             except KeyError:
-                case_data_dict[var] = [missing_value]
+                case_data_dict[var] = case_data_dict['missing_value']
 
         
         #read variables from forcing group
@@ -463,8 +461,6 @@ def write_SCM_case_file(case_nml, case_data, use_area):
             logging.info(message)
             nc_file.forc_wap = forcing_off
             nc_file.forc_wa  = forcing_off
-            #logging.critical(message)
-            #raise Exception(message)
         
         geostrophic_avail = True if (np.any(case_data['u_g'][:,:]) or np.any(case_data['v_g'][:,:])) else False
         if geostrophic_avail:
@@ -473,8 +469,6 @@ def write_SCM_case_file(case_nml, case_data, use_area):
             message = 'The case namelist ({0}) specifies the momentum variables should be forced using geostrophic winds (through mom_forcing = 2), but neither u_g or v_g have nonzero values'.format(nml_filename)
             logging.info(message)
             nc_file.forc_geo = forcing_off
-            #logging.critical(message)
-            #raise Exception(message)
         nc_file.nudging_ua = forcing_off
         nc_file.nudging_va = forcing_off
                         
@@ -522,8 +516,6 @@ def write_SCM_case_file(case_nml, case_data, use_area):
             logging.info(message)
             nc_file.forc_wap = forcing_off
             nc_file.forc_wa  = forcing_off
-            #logging.critical(message)
-            #raise Exception(message)
             
     elif (case_nml['case_config']['thermo_forcing_type'] == 3):
         #nudging + vertical velocity
@@ -554,8 +546,6 @@ def write_SCM_case_file(case_nml, case_data, use_area):
             logging.info(message)
             nc_file.forc_wap = forcing_off
             nc_file.forc_wa  = forcing_off
-            #logging.critical(message)
-            #raise Exception(message)
     
     time_dim   = nc_file.createDimension('time', case_data['time'].shape[0])
     timei_dim  = nc_file.createDimension('t0',    1)
@@ -1512,7 +1502,7 @@ def write_SCM_case_file(case_nml, case_data, use_area):
     
     if (nc_file.adv_ta == forcing_on):
         message = 'adv_ta is turned on, but is not implemented in the proprietery CCPP SCM case format and cannot be used.'
-        logging.critical()
+        logging.critical(message)
         raise Exception(message)
         # tnta_adv_var                    = nc_file.createVariable('tnta_adv', wp, ('time','lev'))
         # tnta_adv_var.units              = 'K s-1'
@@ -1521,7 +1511,7 @@ def write_SCM_case_file(case_nml, case_data, use_area):
         
     if (nc_file.adv_qv == forcing_on):
         message = 'adv_qv is turned on, but is not implemented in the proprietery CCPP SCM case format and cannot be used.'
-        logging.critical()
+        logging.critical(message)
         raise Exception(message)
         # tnqv_adv_var                    = nc_file.createVariable('tnqv_adv', wp, ('time','lev'))
         # tnqv_adv_var.units              = 'kg kg-1 s-1'
@@ -1530,7 +1520,7 @@ def write_SCM_case_file(case_nml, case_data, use_area):
     
     if (nc_file.adv_ua == forcing_on):
         message = 'adv_ua is turned on, but is not implemented in the proprietery CCPP SCM case format and cannot be used.'
-        logging.critical()
+        logging.critical(message)
         raise Exception(message)
         # tnua_adv_var                    = nc_file.createVariable('tnua_adv', wp, ('time','lev'))
         # tnua_adv_var.units              = 'm s-2'
@@ -1539,7 +1529,7 @@ def write_SCM_case_file(case_nml, case_data, use_area):
     
     if (nc_file.adv_va == forcing_on):
         message = 'adv_va is turned on, but is not implemented in the proprietery CCPP SCM case format and cannot be used.'
-        logging.critical()
+        logging.critical(message)
         raise Exception(message)
         # tnva_adv_var                    = nc_file.createVariable('tnva_adv', wp, ('time','lev'))
         # tnva_adv_var.units              = 'm s-2'
@@ -1548,7 +1538,7 @@ def write_SCM_case_file(case_nml, case_data, use_area):
     
     if (nc_file.adv_theta == forcing_on):
         message = 'adv_theta is turned on, but is not implemented in the proprietery CCPP SCM case format and cannot be used.'
-        logging.critical()
+        logging.critical(message)
         raise Exception(message)
         # tntheta_adv_var                    = nc_file.createVariable('tntheta_adv', wp, ('time','lev'))
         # tntheta_adv_var.units              = 'K s-1'
@@ -1575,7 +1565,7 @@ def write_SCM_case_file(case_nml, case_data, use_area):
     
     if (nc_file.adv_rv == forcing_on):
         message = 'adv_rv is turned on, but is not implemented in the proprietery CCPP SCM case format and cannot be used.'
-        logging.critical()
+        logging.critical(message)
         raise Exception(message)
         # tnrv_adv_var                    = nc_file.createVariable('tnrv_adv', wp, ('time','lev'))
         # tnrv_adv_var.units              = 'kg kg-1 s-1'
@@ -1584,7 +1574,7 @@ def write_SCM_case_file(case_nml, case_data, use_area):
     
     if (nc_file.adv_rt == forcing_on):
         message = 'adv_rt is turned on, but is not implemented in the proprietery CCPP SCM case format and cannot be used.'
-        logging.critical()
+        logging.critical(message)
         raise Exception(message)
         # tnrt_adv_var                    = nc_file.createVariable('tnrt_adv', wp, ('time','lev'))
         # tnrt_adv_var.units              = 'kg kg-1 s-1'
@@ -1750,11 +1740,11 @@ def write_SCM_nml_file(case_nml):
 #
 ########################################################################################    
 def main():
-    setup_logging()
-    
     #read in arguments
-    (case_name, use_area) = parse_arguments()
-    
+    (case_name, use_area, debug) = parse_arguments()
+
+    setup_logging(debug)
+
     (case_nml, error) = get_case_nml(case_name)
     if (error):
         message = 'The directory {0} does not contain a config file for case {1}'.format(CASE_NML_DIR, case_name)
@@ -1775,7 +1765,6 @@ def main():
     logging.debug("Created {}".format(fileOUT))
     
     write_SCM_nml_file(case_nml)
-    #logging.debug("Created {}".format(nmlOUT))
     
 if __name__ == '__main__':
     main()
