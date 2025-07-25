@@ -12,6 +12,7 @@ import time
 from suite_info import suite, suite_list
 from netCDF4 import Dataset
 import importlib
+from multiprocessing import Pool
 
 ###############################################################################
 # Global settings                                                             #
@@ -125,6 +126,7 @@ parser.add_argument('--stop_on_error',    help='when running multiple SCM runs, 
 parser.add_argument('-v', '--verbose',    help='set logging level to debug and write log to file', action='count', default=0)
 parser.add_argument('-f', '--file',       help='name of file where SCM runs are defined')
 parser.add_argument('--mpi_command',      help='command used to invoke the executable via MPI (including options)', required=False)
+parser.add_argument('-j', '--jobs',       help='Number of SCM jobs to run in parallel', required=False, default=1, type=int)
 
 ###############################################################################
 # Functions and subroutines                                                   #
@@ -193,6 +195,7 @@ def parse_arguments():
     timestep = args.timestep
     mpi_command = args.mpi_command
     stop_on_error = args.stop_on_error
+    jobs = args.jobs
 
     if not case and not file:
         parser.error('Either "--case" or "--file" must be specified. Use "--help" for more information.')
@@ -202,7 +205,7 @@ def parse_arguments():
 
     return (file, case, sdf, namelist, tracers, gdb, runtime, runtime_mult, docker, \
             verbose, levels, npz_type, vert_coord_file, case_data_dir, n_itt_out,   \
-            n_itt_diag, run_dir, bin_dir, timestep, mpi_command, stop_on_error)
+            n_itt_diag, run_dir, bin_dir, timestep, mpi_command, stop_on_error, jobs)
 
 def find_gdb():
     """Detect gdb, abort if not found"""
@@ -724,7 +727,7 @@ class Experiment(object):
 
         return os.path.join(SCM_RUN, output_dir)
 
-def launch_executable(use_gdb, gdb, mpi_command, ignore_error = False):
+def launch_executable(run, suite, rundir, use_gdb, gdb, mpi_command, ignore_error = False, docker = False):
     """Configure model run command and pass control to shell/gdb"""
     if use_gdb:
         if not mpi_command:
@@ -756,7 +759,22 @@ def launch_executable(use_gdb, gdb, mpi_command, ignore_error = False):
             logging.warning('Unable to get timing information from {0} stderr'.format(cmd))
         else:
             time_elapsed = int(minutes)*60 + float(seconds)
-    return (status, time_elapsed)
+
+        if status == 0:
+            logging.info('Process "(case={0}, suite={1}, namelist={2}" completed successfully'. \
+                         format(run["case"], run["suite"], suite.namelist))
+        else:
+            error_str = 'Process "(case={0}, suite={1}, namelist={2}" exited with code {3}'. \
+                        format( run["case"], run["suite"], suite.namelist, status)
+            logging.warning(error_str)
+        log = [run["case"], run["suite"], suite.namelist, status]
+        #
+        if time_elapsed:
+            logging.info('    Elapsed time: {0}s'.format(time_elapsed))
+        if docker:
+            copy_outdir(rundir)
+
+    return log
 
 def copy_outdir(exp_dir):
     """Copy output directory to /home for this experiment."""
@@ -834,7 +852,7 @@ def find_max_str_lengths(run_list):
 def main():
     (file, case, sdf, namelist, tracers, use_gdb, runtime, runtime_mult, docker, \
      verbose, levels, npz_type, vert_coord_file, case_data_dir, n_itt_out,       \
-     n_itt_diag, run_dir, bin_dir, timestep, mpi_command, stop_on_error \
+     n_itt_diag, run_dir, bin_dir, timestep, mpi_command, stop_on_error, jobs \
      ) = parse_arguments()
 
     setup_logging(verbose)
@@ -893,10 +911,10 @@ def main():
     error_logs = [["Failed Case", "Suite", "Namelist", "Status"]]
     pass_logs = [["Passing Case", "Suite", "Namelist", "Status"]]
     max_str_lens = find_max_str_lengths(run_list)
-    failed_case = False
     irun = 0
 
-    # Loop through all input "run dictionaires"
+    # Loop through all input "run dictionaries", populate list of argument tuples for multiprocessing (parallel submission)
+    scm_args = []
     for run in run_list:
         #
         # Is this a "supported" SCM configuration?
@@ -961,27 +979,21 @@ def main():
             l_ignore_error = False
         if stop_on_error:
             l_ignore_error = False
+        scm_args.append( (run, active_suite, exp_dir, use_gdb, gdb, mpi_command, l_ignore_error, docker) )
 
-        (status, time_elapsed) = launch_executable(use_gdb, gdb, mpi_command, ignore_error = l_ignore_error)
-        #
-        if status == 0:
-            logging.info('Process "(case={0}, suite={1}, namelist={2}" completed successfully'. \
-                         format(run["case"], run["suite"], active_suite.namelist))
-            pass_logs.append([run["case"], run["suite"], active_suite.namelist, status])
+    if jobs > 1:
+        logging.info(f"Running {jobs} scm instances in parallel")
+    with Pool(processes=jobs) as pool:
+        log_entries = pool.starmap(launch_executable, scm_args)
+
+    for log_entry in log_entries:
+        if log_entry[3] > 0:
+            error_logs.append(log_entry)
         else:
-            failed_case = True
-            error_str = 'Process "(case={0}, suite={1}, namelist={2}" exited with code {3}'. \
-                        format( run["case"], run["suite"], active_suite.namelist, status)
-            logging.warning(error_str)
-            error_logs.append([run["case"], run["suite"], active_suite.namelist, status])
-        #
-        if time_elapsed:
-            logging.info('    Elapsed time: {0}s'.format(time_elapsed))
-        if docker:
-            copy_outdir(exp_dir)
+            pass_logs.append(log_entry)
 
     print_report(pass_logs, len(run_list), max_str_lens, passing=True)
-    if (failed_case):
+    if (len(error_logs)>1):
         print_report(error_logs, len(run_list), max_str_lens, passing=False)
         sys.exit(1)
 
