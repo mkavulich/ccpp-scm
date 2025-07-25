@@ -3,7 +3,6 @@
 import argparse
 import f90nml
 import logging
-import numpy as np
 import os
 import re
 import shutil
@@ -775,8 +774,7 @@ def print_report_line(case_s, suite, namelist, max_str_lens):
     logging.info(f"| {case_s:<{case_l}} | {suite:<{suite_l}} | {namelist:<{namelist_l}} |")
 
 
-def print_report(logs, total_count, max_str_lens,
-                 passing=False, failing=False):
+def print_report(logs, total_count, max_str_lens,passing):
     case_l = max_str_lens.case
     suite_l = max_str_lens.suite
     namelist_l = max_str_lens.namelist
@@ -785,11 +783,10 @@ def print_report(logs, total_count, max_str_lens,
     column_width = (case_l + suite_l + namelist_l + status_l + 13)
 
     # print formatted summary
-    print("")
     if (passing):
-        print("Passing Summary:")
-    if (failing):
-        print("Failure Summary:")
+        print("\nPassing Summary:")
+    else:
+        print("\nFailure Summary:")
     print("-" * column_width)
     for log in logs:
         case_s, suite, namelist, status = log
@@ -801,10 +798,10 @@ def print_report(logs, total_count, max_str_lens,
     print("-" * column_width)
     if (passing):
         # error_log contains header, subtracting 1 from error
-        passing_count = logs.shape[0] - 1
+        passing_count = len(logs) - 1
         print(f"[{passing_count}/{total_count}] passing cases")
-    if (failing):
-        error_count = logs.shape[0] - 1
+    else:
+        error_count = len(logs) - 1
         print(f"[{error_count}/{total_count}] failed cases")
 
 
@@ -970,17 +967,13 @@ def main():
         if status == 0:
             logging.info('Process "(case={0}, suite={1}, namelist={2}" completed successfully'. \
                          format(run["case"], run["suite"], active_suite.namelist))
-            pass_logs = np.append(pass_logs,
-                                  [[run["case"], run["suite"], active_suite.namelist, status]],
-                                  axis=0)
+            pass_logs.append([run["case"], run["suite"], active_suite.namelist, status])
         else:
             failed_case = True
             error_str = 'Process "(case={0}, suite={1}, namelist={2}" exited with code {3}'. \
                         format( run["case"], run["suite"], active_suite.namelist, status)
             logging.warning(error_str)
-            error_logs = np.append(error_logs,
-                                   [[run["case"], run["suite"], active_suite.namelist, status]],
-                                   axis=0)
+            error_logs.append([run["case"], run["suite"], active_suite.namelist, status])
         #
         if time_elapsed:
             logging.info('    Elapsed time: {0}s'.format(time_elapsed))
@@ -989,7 +982,7 @@ def main():
 
     print_report(pass_logs, len(run_list), max_str_lens, passing=True)
     if (failed_case):
-        print_report(error_logs, len(run_list), max_str_lens, failing=True)
+        print_report(error_logs, len(run_list), max_str_lens, passing=False)
         sys.exit(1)
 
 
