@@ -19,7 +19,6 @@ from multiprocessing import Pool
 ###############################################################################
 
 SCM_ROOT = ''
-SCM_RUN = ''
 SCM_BIN = ''
 EXECUTABLE = ''
 
@@ -449,8 +448,10 @@ class Experiment(object):
         """Set the diagnostic period (in timesteps) for the experiment."""
         self._n_itt_diag = value
 
-    def setup_rundir(self):
-        """Set up run directory for this experiment."""
+    def setup_rundir(self,scm_rundir,subdir=False):
+        """Set up run directory for this experiment. If subdir=True, the run directory will be
+        created as a subdirectory in the main scm_rundir directory (used for parallel runs).
+        Returns the run directory and output directory for this experiment respectively"""
 
         # Parse case configuration namelist and extract
         # - output directory
@@ -484,15 +485,24 @@ class Experiment(object):
             case_nml['case_config']['dt'] = self._timestep
         # look for the output_dir variable in the case configuration namelist and use it if it does;
         # if it doesn't exist, create a default output directory name (from the case and suite names) and create a namelist patch
+        # If subdir=True, the run directory will be set accordingly as well.
         try:
             output_dir = case_nml['case_config']['output_dir']
             custom_output_dir = True
         except KeyError:
-            # If using the default namelist, no need to include it in the output directory name; if not, need to use write custom namelist in output dir name in case running multiple experiments with the same case and suite but different namelists
+            # If using the default namelist, no need to include it in the directory name; if not, need to use write custom namelist in dir name in case running multiple experiments with the same case and suite but different namelists
             if self._physics_namelist == self._suite_obj._default_namelist:
-                output_dir = 'output_' + self._case + '_' + self._suite
+                case_dir_suffix = f'{self._case}_{self._suite}'
             else:
-                output_dir = 'output_' + self._case + '_' + self._suite + '_' + os.path.splitext(self._physics_namelist)[0]
+                case_dir_suffix = f'{self._case}_{self._suite}_{os.path.splitext(self._physics_namelist)[0]}'
+            output_dir = f'output_{case_dir_suffix}'
+            if subdir:
+                scm_rundir = os.path.join(scm_rundir, f'rundir_{case_dir_suffix}')
+                if os.path.isdir(scm_rundir):
+                    logging.warning(f'Removing old run directory {scm_rundir}')
+                    shutil.rmtree(scm_rundir)
+
+                os.makedirs(scm_rundir)
             output_dir_patch_nml = {'case_config':{'output_dir':output_dir}}
             custom_output_dir = False
 
@@ -528,45 +538,45 @@ class Experiment(object):
         # Create STANDARD_EXPERIMENT_NAMELIST in the run directory with the case configuration and physics configuration namelists
         logging.info('Creating experiment configuration namelist {0} in the run directory from {1} using {2} and {3} '.format(STANDARD_EXPERIMENT_NAMELIST,self._namelist,self._suite,self._physics_namelist))
 
-        with open(os.path.join(SCM_RUN, STANDARD_EXPERIMENT_NAMELIST), "w+") as nml_file:
+        with open(os.path.join(scm_rundir, STANDARD_EXPERIMENT_NAMELIST), "w+") as nml_file:
             case_nml.write(nml_file)
 
-        with open(os.path.join(SCM_RUN, STANDARD_EXPERIMENT_NAMELIST), "a") as nml_file:
+        with open(os.path.join(scm_rundir, STANDARD_EXPERIMENT_NAMELIST), "a") as nml_file:
             physics_config_nml.write(nml_file)
 
         # if using the default output dir name created in this script, patch the experiment namelist with the new output_dir variable
         if(not custom_output_dir):
             # GJF TODO: this implementation is clunky; newer versions of f90nml can handle this better, but this works with v0.19 so no need to require newer version
-            f90nml.patch(os.path.join(SCM_RUN, STANDARD_EXPERIMENT_NAMELIST), output_dir_patch_nml, 'temp.nml')
-            cmd = "mv {0} {1}".format('temp.nml', os.path.join(SCM_RUN, STANDARD_EXPERIMENT_NAMELIST))
+            f90nml.patch(os.path.join(scm_rundir, STANDARD_EXPERIMENT_NAMELIST), output_dir_patch_nml, 'temp.nml')
+            cmd = "mv {0} {1}".format('temp.nml', os.path.join(scm_rundir, STANDARD_EXPERIMENT_NAMELIST))
             execute(cmd)
 
         # Link physics namelist to run directory with its original name
         logging.debug('Linking physics namelist {0} to run directory'.format(self._physics_namelist))
-        if os.path.isfile(os.path.join(SCM_RUN, self._physics_namelist)):
-            os.remove(os.path.join(SCM_RUN,self._physics_namelist))
+        if os.path.isfile(os.path.join(scm_rundir, self._physics_namelist)):
+            os.remove(os.path.join(scm_rundir,self._physics_namelist))
         if not os.path.isfile(os.path.join(SCM_ROOT, PHYSICS_NAMELIST_DIR, self._physics_namelist)):
             message = 'Physics namelist {0} not found in directory {1}'.format(os.path.join(SCM_ROOT, self._physics_namelist), PHYSICS_NAMELIST_DIR)
             logging.critical(message)
             raise Exception(message)
-        cmd = "ln -sf {0} {1}".format(os.path.join(SCM_ROOT, PHYSICS_NAMELIST_DIR, self._physics_namelist), os.path.join(SCM_RUN, self._physics_namelist))
+        cmd = "ln -sf {0} {1}".format(os.path.join(SCM_ROOT, PHYSICS_NAMELIST_DIR, self._physics_namelist), os.path.join(scm_rundir, self._physics_namelist))
         if surface_flux_spec:
             #check for optional prescribed-surface-specific physics namelist and link it instead (if present)
             opt_ps_nml_filename = os.path.splitext(os.path.join(SCM_ROOT, PHYSICS_NAMELIST_DIR,self._physics_namelist))[0] + '_ps.nml'
             if os.path.isfile(opt_ps_nml_filename):
                 logging.info('Found optional prescribed surface physics namelist {0}; linking it to run directory'.format(opt_ps_nml_filename))
-                cmd = "ln -sf {0} {1}".format(opt_ps_nml_filename, os.path.join(SCM_RUN, self._physics_namelist))
+                cmd = "ln -sf {0} {1}".format(opt_ps_nml_filename, os.path.join(scm_rundir, self._physics_namelist))
         execute(cmd)
 
         # Link tracer configuration to run directory with standard name
         logging.debug('Linking tracer configuration {0} to run directory'.format(self._tracers))
-        if os.path.isfile(os.path.join(SCM_RUN, self._tracers)):
-            os.remove(os.path.join(SCM_RUN, self._tracers))
+        if os.path.isfile(os.path.join(scm_rundir, self._tracers)):
+            os.remove(os.path.join(scm_rundir, self._tracers))
         if not os.path.isfile(os.path.join(SCM_ROOT, TRACERS_DIR, self._tracers)):
             message = 'Tracer configuration {0} not found in directory {1}'.format(self._tracers, os.path.join(SCM_ROOT, TRACERS_DIR))
             logging.critical(message)
             raise Exception(message)
-        cmd = "ln -sf {0} {1}".format(os.path.join(SCM_ROOT, TRACERS_DIR, self._tracers), os.path.join(SCM_RUN, TRACERS_LINK))
+        cmd = "ln -sf {0} {1}".format(os.path.join(SCM_ROOT, TRACERS_DIR, self._tracers), os.path.join(scm_rundir, TRACERS_LINK))
         execute(cmd)
 
         # Link case data file to run directory with original name
@@ -579,37 +589,37 @@ class Experiment(object):
         except KeyError:
             case_data_netcdf_file = self._case + '.nc'
         logging.debug('Linking case input data file {0} to run directory'.format(case_data_netcdf_file))
-        if os.path.isfile(os.path.join(SCM_RUN, case_data_netcdf_file)):
-            os.remove(os.path.join(SCM_RUN, case_data_netcdf_file))
+        if os.path.isfile(os.path.join(scm_rundir, case_data_netcdf_file)):
+            os.remove(os.path.join(scm_rundir, case_data_netcdf_file))
         if not os.path.isfile(os.path.join(SCM_ROOT, self._case_data_dir, case_data_netcdf_file)):
             message = 'Case input data file {0} not found in directory {1}'.format(case_data_netcdf_file, os.path.join(SCM_ROOT, self._case_data_dir))
             logging.critical(message)
             raise Exception(message)
-        cmd = "ln -sf {0} {1}".format(os.path.join(SCM_ROOT, self._case_data_dir, case_data_netcdf_file), os.path.join(SCM_RUN, case_data_netcdf_file))
+        cmd = "ln -sf {0} {1}".format(os.path.join(SCM_ROOT, self._case_data_dir, case_data_netcdf_file), os.path.join(scm_rundir, case_data_netcdf_file))
         execute(cmd)
 
         # Link vertical coordinate file to run directory with its original name
         if (self._npz_type == 'input'):
             logging.debug('Linking vertical coordinate file {0} to run directory'.format(self._vert_coord_file))
-            if os.path.isfile(os.path.join(SCM_RUN, self._vert_coord_file)):
-                os.remove(os.path.join(SCM_RUN, self._vert_coord_file))
+            if os.path.isfile(os.path.join(scm_rundir, self._vert_coord_file)):
+                os.remove(os.path.join(scm_rundir, self._vert_coord_file))
             if not os.path.isfile(os.path.join(SCM_ROOT, VERT_COORD_DATA_DIR, self._vert_coord_file)):
                 message = 'Vertical coordinate file {0} not found in directory {1}'.format(self._vert_coord_file, os.path.join(SCM_ROOT, VERT_COORD_DATA_DIR))
                 logging.critical(message)
                 raise Exception(message)
-            cmd = "ln -sf {0} {1}".format(os.path.join(SCM_ROOT, VERT_COORD_DATA_DIR, self._vert_coord_file), os.path.join(SCM_RUN, self._vert_coord_file))
+            cmd = "ln -sf {0} {1}".format(os.path.join(SCM_ROOT, VERT_COORD_DATA_DIR, self._vert_coord_file), os.path.join(scm_rundir, self._vert_coord_file))
             execute(cmd)
 
         # Link physics SDF to run directory
         physics_suite = 'suite_' + self._suite + '.xml'
         logging.debug('Linking physics suite {0} to run directory'.format(physics_suite))
-        if os.path.isfile(os.path.join(SCM_RUN, physics_suite)):
-            os.remove(os.path.join(SCM_RUN, physics_suite))
+        if os.path.isfile(os.path.join(scm_rundir, physics_suite)):
+            os.remove(os.path.join(scm_rundir, physics_suite))
         if not os.path.isfile(os.path.join(SCM_ROOT, PHYSICS_SUITE_DIR, physics_suite)):
             message = 'Physics suite {0} not found in directory {1}'.format(physics_suite, os.path.join(SCM_ROOT, PHYSICS_SUITE_DIR))
             logging.critical(message)
             raise Exception(message)
-        cmd = "ln -sf {0} {1}".format(os.path.join(SCM_ROOT, PHYSICS_SUITE_DIR, physics_suite), os.path.join(SCM_RUN, physics_suite))
+        cmd = "ln -sf {0} {1}".format(os.path.join(SCM_ROOT, PHYSICS_SUITE_DIR, physics_suite), os.path.join(scm_rundir, physics_suite))
         execute(cmd)
 
         # Link physics data needed for schemes to run directory
@@ -618,7 +628,7 @@ class Experiment(object):
             if os.path.isfile(os.path.join(SCM_ROOT, PHYSICS_DATA_DIR, entry)):
                 if not os.path.exists(entry):
                     logging.debug('Linking file {0}'.format(entry))
-                    cmd = 'ln -sf {0} {1}'.format(os.path.join(SCM_ROOT, PHYSICS_DATA_DIR, entry), os.path.join(SCM_RUN, entry))
+                    cmd = 'ln -sf {0} {1}'.format(os.path.join(SCM_ROOT, PHYSICS_DATA_DIR, entry), os.path.join(scm_rundir, entry))
                     execute(cmd)
 
         # Link reference profile data to run directory
@@ -627,14 +637,14 @@ class Experiment(object):
             if os.path.isfile(os.path.join(SCM_ROOT, REFERENCE_PROFILE_DIR, entry)):
                 if not os.path.exists(entry):
                     logging.debug('Linking file {0}'.format(entry))
-                    cmd = 'ln -sf {0} {1}'.format(os.path.join(SCM_ROOT, REFERENCE_PROFILE_DIR, entry), os.path.join(SCM_RUN, entry))
+                    cmd = 'ln -sf {0} {1}'.format(os.path.join(SCM_ROOT, REFERENCE_PROFILE_DIR, entry), os.path.join(scm_rundir, entry))
                     execute(cmd)
 
         # Parse physics namelist and extract
         # - oz_phys
         # - oz_phys_2015
-        logging.debug('Parsing physics namelist {0}'.format(os.path.join(SCM_RUN, self._physics_namelist)))
-        nml = f90nml.read(os.path.join(SCM_RUN, self._physics_namelist))
+        logging.debug('Parsing physics namelist {0}'.format(os.path.join(scm_rundir, self._physics_namelist)))
+        nml = f90nml.read(os.path.join(scm_rundir, self._physics_namelist))
         # oz_phys
         try:
             oz_phys = nml['gfs_physics_nml']['oz_phys']
@@ -652,15 +662,15 @@ class Experiment(object):
             raise Exception(message)
 
         # Link input data for oz_phys or oz_phys_2015
-        if os.path.exists(os.path.join(SCM_RUN, OZ_PHYS_LINK)):
-            os.remove(os.path.join(SCM_RUN, OZ_PHYS_LINK))
+        if os.path.exists(os.path.join(scm_rundir, OZ_PHYS_LINK)):
+            os.remove(os.path.join(scm_rundir, OZ_PHYS_LINK))
         if oz_phys:
             logging.debug('Linking input data for oz_phys')
-            cmd = 'ln -sf {0} {1}'.format(os.path.join(SCM_RUN, OZ_PHYS_TARGET), os.path.join(SCM_RUN, OZ_PHYS_LINK))
+            cmd = 'ln -sf {0} {1}'.format(os.path.join(scm_rundir, OZ_PHYS_TARGET), os.path.join(scm_rundir, OZ_PHYS_LINK))
             execute(cmd)
         elif oz_phys_2015:
             logging.debug('Linking input data for oz_phys_2015')
-            cmd = 'ln -sf {0} {1}'.format(os.path.join(SCM_RUN, OZ_PHYS_2015_TARGET), os.path.join(SCM_RUN, OZ_PHYS_LINK))
+            cmd = 'ln -sf {0} {1}'.format(os.path.join(scm_rundir, OZ_PHYS_2015_TARGET), os.path.join(scm_rundir, OZ_PHYS_LINK))
             execute(cmd)
 
         # Look for do_ugwp_v1
@@ -671,10 +681,10 @@ class Experiment(object):
 
         # Link the tau file if do_ugwp_v1
         if do_ugwp_v1:
-            if os.path.exists(os.path.join(SCM_RUN, TAU_LINK)):
-                os.remove(os.path.join(SCM_RUN, TAU_LINK))
+            if os.path.exists(os.path.join(scm_rundir, TAU_LINK)):
+                os.remove(os.path.join(scm_rundir, TAU_LINK))
             logging.debug('Linking input data for UGWP_v1')
-            cmd = 'ln -sf {0} {1}'.format(os.path.join(SCM_RUN, TAU_TARGET), os.path.join(SCM_RUN, TAU_LINK))
+            cmd = 'ln -sf {0} {1}'.format(os.path.join(scm_rundir, TAU_TARGET), os.path.join(scm_rundir, TAU_LINK))
             execute(cmd)
 
         # Link scripts needed to run SCM analysis
@@ -684,7 +694,7 @@ class Experiment(object):
             if os.path.isfile(os.path.join(SCM_ROOT, SCM_ANALYSIS_SCRIPT_DIR, entry)):
                 if not os.path.exists(entry):
                     logging.debug('Linking file {0}'.format(entry))
-                    cmd = 'ln -sf {0} {1}'.format(os.path.join(SCM_ROOT, SCM_ANALYSIS_SCRIPT_DIR, entry), os.path.join(SCM_RUN, entry))
+                    cmd = 'ln -sf {0} {1}'.format(os.path.join(SCM_ROOT, SCM_ANALYSIS_SCRIPT_DIR, entry), os.path.join(scm_rundir, entry))
                     execute(cmd)
 
         # Link plot configuration files needed to run SCM analysis
@@ -693,28 +703,29 @@ class Experiment(object):
             if os.path.isfile(os.path.join(SCM_ROOT, SCM_ANALYSIS_CONFIG_DIR, entry)):
                 if not os.path.exists(entry):
                     logging.debug('Linking file {0}'.format(entry))
-                    cmd = 'ln -sf {0} {1}'.format(os.path.join(SCM_ROOT, SCM_ANALYSIS_CONFIG_DIR, entry), os.path.join(SCM_RUN, entry))
+                    cmd = 'ln -sf {0} {1}'.format(os.path.join(SCM_ROOT, SCM_ANALYSIS_CONFIG_DIR, entry), os.path.join(scm_rundir, entry))
                     execute(cmd)
 
         # Create output directory (delete existing directory)
         logging.debug('Creating output directory {0} in run directory'.format(output_dir))
-        if os.path.isdir(os.path.join(SCM_RUN, output_dir)):
-            shutil.rmtree(os.path.join(SCM_RUN, output_dir))
-        os.makedirs(os.path.join(SCM_RUN, output_dir))
+        if os.path.isdir(os.path.join(scm_rundir, output_dir)):
+            shutil.rmtree(os.path.join(scm_rundir, output_dir))
+        os.makedirs(os.path.join(scm_rundir, output_dir))
 
         # Write experiment configuration file to output directory
         logging.debug('Writing experiment configuration {0}.nml to output directory'.format(self._name))
-        cmd = 'cp {0} {1}'.format(os.path.join(SCM_RUN, STANDARD_EXPERIMENT_NAMELIST), os.path.join(SCM_RUN, output_dir,self._name + '.nml'))
+        cmd = 'cp {0} {1}'.format(os.path.join(scm_rundir, STANDARD_EXPERIMENT_NAMELIST), os.path.join(scm_rundir, output_dir,self._name + '.nml'))
         execute(cmd)
 
         # Move executable to run dir
         if COPY_EXECUTABLE:
             logging.debug('Copying executable to run directory')
-            cmd = 'cp {0} {1}'.format(os.path.join(SCM_ROOT, SCM_BIN, EXECUTABLE_NAME), os.path.join(SCM_RUN, EXECUTABLE_NAME))
+            cmd = 'cp {0} {1}'.format(os.path.join(SCM_ROOT, SCM_BIN, EXECUTABLE_NAME), os.path.join(scm_rundir, EXECUTABLE_NAME))
             execute(cmd)
         else:
             logging.debug('Linking executable to run directory')
-            cmd = 'ln -sf {0} {1}'.format(os.path.join(SCM_ROOT, SCM_BIN, EXECUTABLE_NAME), os.path.join(SCM_RUN, EXECUTABLE_NAME))
+            cmd = 'ln -sf {0} {1}'.format(os.path.join(SCM_ROOT, SCM_BIN, EXECUTABLE_NAME), os.path.join(scm_rundir, EXECUTABLE_NAME))
+            logging.info(f'Linking executable to run directory: {cmd}')
             execute(cmd)
 
         #Inform user of timestep and output intervals
@@ -725,18 +736,18 @@ class Experiment(object):
             logging.info('Using the default timestep in src/scm_input.F90 with an instantaneous output period of {0}*dt and a diagnostic output period of {1}*dt'.format(
                 case_nml['case_config']['n_itt_out'],case_nml['case_config']['n_itt_diag']))
 
-        return os.path.join(SCM_RUN, output_dir)
+        return scm_rundir,os.path.join(scm_rundir, output_dir)
 
-def launch_executable(run, suite, rundir, use_gdb, gdb, mpi_command, ignore_error = False, docker = False):
+def launch_executable(run, suite, rundir, outdir, executable, use_gdb, gdb, mpi_command, ignore_error = False, docker = False):
     """Configure model run command and pass control to shell/gdb"""
     if use_gdb:
         if not mpi_command:
             mpi_command = DEFAULT_MPI_COMMAND + ' xterm -e '
-        cmd = '(cd {scm_run} && {mpi_command} {gdb} {executable})'.format(scm_run=SCM_RUN, mpi_command=mpi_command, gdb=gdb, executable=EXECUTABLE)
+        cmd = f'(cd {rundir} && {mpi_command} {gdb} {executable})'
     else:
         if not mpi_command:
             mpi_command = DEFAULT_MPI_COMMAND
-        cmd = '(cd {scm_run} && time {mpi_command} {executable})'.format(scm_run=SCM_RUN, mpi_command=mpi_command, executable=EXECUTABLE)
+        cmd = f'(cd {rundir} && time {executable})'
     logging.info('Passing control to "{0}"'.format(cmd))
     time.sleep(1)
     # This will abort in 'execute' in the event of an error if ignore_error = False
@@ -772,7 +783,7 @@ def launch_executable(run, suite, rundir, use_gdb, gdb, mpi_command, ignore_erro
         if time_elapsed:
             logging.info('    Elapsed time: {0}s'.format(time_elapsed))
         if docker:
-            copy_outdir(rundir)
+            copy_outdir(outdir)
 
     return log
 
@@ -871,16 +882,14 @@ def main():
     else:
         SCM_BIN = os.path.join(SCM_ROOT, DEFAULT_BIN_DIR)
 
-    global SCM_RUN
     if run_dir:
-        SCM_RUN = run_dir
+        if jobs > 1:
+            raise ValueError("Can not specify run_dir if running in parallel")
+        scm_rundir = run_dir
     else:
-        SCM_RUN = os.path.join(SCM_ROOT, DEFAULT_RUN_DIR)
-    if not os.path.isdir(SCM_RUN):
-        os.makedirs(SCM_RUN)
-
-    global EXECUTABLE
-    EXECUTABLE = os.path.join(SCM_RUN, EXECUTABLE_NAME)
+        scm_rundir = os.path.join(SCM_ROOT, DEFAULT_RUN_DIR)
+    if not os.path.isdir(scm_rundir):
+        os.makedirs(scm_rundir)
 
     # Debugger
     if use_gdb:
@@ -972,14 +981,19 @@ def main():
         exp = Experiment(run["case"], active_suite, runtime, runtime_mult, levels, \
                          npz_type, vert_coord_file, case_data_dir, n_itt_out, n_itt_diag, timestep)
         #
-        exp_dir = exp.setup_rundir()
+        if jobs > 1:
+            rundir,out_dir = exp.setup_rundir(scm_rundir,True)
+        else:
+            rundir,out_dir = exp.setup_rundir(scm_rundir)
         if len(run_list) > 1:
             l_ignore_error = MULTIRUN_IGNORE_ERROR
         else:
             l_ignore_error = False
         if stop_on_error:
             l_ignore_error = False
-        scm_args.append( (run, active_suite, exp_dir, use_gdb, gdb, mpi_command, l_ignore_error, docker) )
+        executable = os.path.join(rundir, EXECUTABLE_NAME)
+
+        scm_args.append( (run, active_suite, rundir, out_dir, executable, use_gdb, gdb, mpi_command, l_ignore_error, docker) )
 
     if jobs > 1:
         logging.info(f"Running {jobs} scm instances in parallel")
